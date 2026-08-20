@@ -1,0 +1,57 @@
+# Example configuration. Copy to config.yaml and fill in real connection
+# details. Passwords must NOT be placed here directly -- reference an
+# environment variable name via password_env, and set that variable in your
+# shell or a .env file (see .env.example).
+
+databases:
+  - name: sales_postgres
+    dialect: postgresql
+    host: localhost
+    port: 5432
+    database: sales
+    username: sales_reader
+    password_env: SALES_POSTGRES_PASSWORD
+    schemas: ["public"]
+    exclude_tables: ["alembic_version", "django_migrations"]
+
+  - name: crm_mssql
+    dialect: mssql
+    host: crm-db.example.com
+    port: 1433
+    database: CRM
+    username: crm_reader
+    password_env: CRM_MSSQL_PASSWORD
+    driver_options:
+      driver: "ODBC Driver 18 for SQL Server"
+      Encrypt: "yes"
+      TrustServerCertificate: "yes"
+    schemas: ["dbo"]
+
+  - name: finance_oracle
+    dialect: oracle
+    host: finance-db.example.com
+    port: 1521
+    database: FINPDB
+    username: finance_reader
+    password_env: FINANCE_ORACLE_PASSWORD
+    schemas: ["FINANCE"]
+
+  - name: legacy_db2
+    dialect: db2
+    host: legacy-db.example.com
+    port: 50000
+    database: LEGACYDB
+    username: legacy_reader
+    password_env: LEGACY_DB2_PASSWORD
+    schemas: ["LEGACY"]
+
+llm:
+  provider: azure_openai
+  azure_endpoint_env: AZURE_OPENAI_ENDPOINT
+  api_key_env: AZURE_OPENAI_API_KEY
+  api_version: "2024-10-21"
+  deployment: gpt-4o-mini   # your Azure OpenAI deployment name
+
+cache:
+  path: .db_agents_cache.sqlite3
+  ttl_seconds: 86400

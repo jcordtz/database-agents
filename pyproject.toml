@@ -1,0 +1,32 @@
+[project]
+name = "db-agents"
+version = "0.1.0"
+description = "Per-table database agents exposed via MCP for cross-table natural language question answering"
+requires-python = ">=3.10"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "mcp>=1.2.0,<2.0",
+    "openai>=1.40.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+mssql = ["pyodbc>=5.0"]
+postgresql = ["psycopg[binary]>=3.1"]
+oracle = ["oracledb>=2.0"]
+db2 = ["ibm-db>=3.2", "ibm-db-sa>=0.4"]
+all-db = ["pyodbc>=5.0", "psycopg[binary]>=3.1", "oracledb>=2.0", "ibm-db>=3.2", "ibm-db-sa>=0.4"]
+dev = ["pytest>=8.0", "pytest-mock>=3.14"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+db-agents-mcp = "db_agents.mcp_server.server:main"
+
+[tool.setuptools.packages.find]
+include = ["db_agents*"]
