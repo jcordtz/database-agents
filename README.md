@@ -107,6 +107,124 @@ so an end user can ask natural-language questions that span multiple tables
 
 ## Setup
 
+There are two ways to get a working setup:
+
+- **[Generate one from a CSV](#generating-a-setup-from-a-csv-recommended)** —
+  recommended when you have a list of tables you want agents for.
+- **[Configure it by hand](#manual-setup)** — for small or one-off setups.
+
+## Generating a setup from a CSV (recommended)
+
+`scripts/create-agent-setup.sh` builds a complete, ready-to-run setup
+(virtualenv, `config.yaml`, `.env` skeleton and a launcher) from two inputs.
+
+### 1. The tables CSV
+
+One row per table that should get its own agent:
+
+```csv
+db_type,host,schema,table
+postgresql,pg.example.com,public,orders
+postgresql,pg.example.com,public,customers
+mssql,crm-db.example.com,dbo,Customers
+oracle,fin-db.example.com,FINANCE,GL_ACCOUNTS
+db2,legacy-db.example.com,LEGACY,ORDERS
+```
+
+- Header names are case-insensitive and common aliases work
+  (`database_type`/`dialect` for `db_type`, `table_name` for `table`, …).
+- `db_type` accepts friendly spellings: `SQL Server`, `Postgres`, `IBM DB2`, …
+- Blank lines and `#` comment lines are ignored; duplicate rows are de-duplicated.
+- An optional `database` column lets one host serve several databases; each
+  database then becomes its own connection.
+
+See [`examples/tables.example.csv`](examples/tables.example.csv).
+
+### 2. The connections directory
+
+One `<host>.properties` file per host in the CSV, holding everything the CSV
+doesn't carry:
+
+```properties
+# pg.example.com.properties
+port=5432
+database=sales
+username=sales_reader
+password_env=PG_SALES_PASSWORD
+
+# optional: any "driver.<name>" entry becomes a SQLAlchemy driver option
+driver.sslmode=require
+
+# optional Purview overrides for this source
+purview_source_host=pg.example.com
+purview_database=sales
+```
+
+Recognised keys: `port`, `database`, `username`, `password_env`, `host`,
+`sqlalchemy_url`, `driver.*`, and the `purview_*` overrides. **No passwords
+go in these files** — `password_env` names an environment variable instead.
+If `port` is omitted, the dialect default is used (1433/1521/5432/50000).
+
+See [`examples/connections/`](examples/connections).
+
+### 3. Run the script
+
+```bash
+./scripts/create-agent-setup.sh
+```
+
+It prompts for anything it needs (including **where to create the setup**).
+For automation, pass everything up front:
+
+```bash
+./scripts/create-agent-setup.sh \
+    --tables-csv examples/tables.example.csv \
+    --connections-dir examples/connections \
+    --target-dir ~/db-agents-prod \
+    --llm-deployment gpt-4o \
+    --no-purview \
+    --non-interactive
+```
+
+Or put the same values in an options file and pass `--options-file`:
+
+```properties
+tables_csv=examples/tables.example.csv
+connections_dir=examples/connections
+target_dir=/opt/db-agents
+llm_deployment=gpt-4o
+```
+
+Useful flags: `--purview-endpoint URL` (enables Purview enrichment),
+`--force` (overwrite an existing config), `--skip-venv`, `--python PATH`,
+`--non-interactive`. Run with `--help` for the full list.
+
+### What you get
+
+```
+<target-dir>/
+├── config.yaml          # connections, schemas and the exact table list
+├── .env                 # skeleton listing every variable you must fill in
+├── run-mcp-server.sh    # sources .env and starts the MCP server
+├── README.md            # setup-specific notes and how to regenerate
+├── inputs/              # copy of the CSV + properties used, for regeneration
+└── .venv/               # db_agents + only the DB drivers your CSV needs
+```
+
+The script inspects the CSV to decide which driver extras to install, so a
+PostgreSQL-only CSV won't pull in the Oracle or DB2 clients.
+
+Then fill in the blanks in `<target-dir>/.env` and start the server:
+
+```bash
+<target-dir>/run-mcp-server.sh
+```
+
+Because `config.yaml` sets `include_tables` from the CSV, only the listed
+tables are introspected and get agents.
+
+## Manual setup
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -181,6 +299,10 @@ blocking table-agent creation.
    one of `mssql`, `oracle`, `postgresql`, `db2`.
 2. Install the matching extra: `pip install -e ".[<dialect>]"`.
 3. Restart the server (or call `refresh_metadata`).
+
+Or, if you generated the setup from a CSV, just add the new rows to the CSV,
+drop a `<host>.properties` file next to the others, and re-run
+`create-agent-setup.sh` with `--force`.
 
 Everything else — introspection, comment extraction, description
 generation, per-table agents, and cross-table orchestration — works

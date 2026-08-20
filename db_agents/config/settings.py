@@ -34,6 +34,12 @@ class DatabaseConnectionConfig(BaseModel):
     driver_options: dict = Field(default_factory=dict)
     # Restrict introspection to specific schemas; None means "all schemas visible to the user"
     schemas: Optional[list[str]] = None
+    # Restrict introspection to an explicit set of tables. Entries may be a
+    # bare table name ("orders") or schema-qualified ("public.orders"), and
+    # simple globs are supported. None/empty means "all tables in the
+    # selected schemas". Used by the CSV-driven setup generator, which lists
+    # exactly which tables should get an agent.
+    include_tables: Optional[list[str]] = None
     # Table name patterns to exclude from introspection (SQL LIKE-style, simple glob supported)
     exclude_tables: list[str] = Field(default_factory=list)
 

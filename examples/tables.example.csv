@@ -1,0 +1,14 @@
+# One row per table that should get its own agent.
+# Columns: db_type, host, schema, table  (an optional "database" column
+# overrides the properties file when one host serves several databases).
+db_type,host,schema,table
+postgresql,pg.example.com,public,orders
+postgresql,pg.example.com,public,order_lines
+postgresql,pg.example.com,public,customers
+mssql,crm-db.example.com,dbo,Customers
+mssql,crm-db.example.com,dbo,Contacts
+mssql,crm-db.example.com,sales,Opportunities
+oracle,fin-db.example.com,FINANCE,GL_ACCOUNTS
+oracle,fin-db.example.com,FINANCE,GL_ENTRIES
+db2,legacy-db.example.com,LEGACY,ORDERS
+db2,legacy-db.example.com,LEGACY,ORDER_ITEMS

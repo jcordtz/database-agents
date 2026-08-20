@@ -21,6 +21,23 @@ def _is_excluded(table_name: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(table_name, pattern) for pattern in patterns)
 
 
+def _is_included(schema: str | None, table_name: str, patterns: list[str] | None) -> bool:
+    """True when no include-list is configured, or when the table matches one
+    of its entries. Entries may be bare ("orders") or schema-qualified
+    ("public.orders"), and simple globs are supported. Matching is
+    case-insensitive so CSV input doesn't have to match Oracle/DB2 upper-case
+    catalog names exactly."""
+    if not patterns:
+        return True
+    qualified = f"{schema}.{table_name}" if schema else table_name
+    candidates = (table_name.lower(), qualified.lower())
+    return any(
+        fnmatch.fnmatch(candidate, pattern.lower())
+        for pattern in patterns
+        for candidate in candidates
+    )
+
+
 def introspect_connection(engine: Engine, conn_config: DatabaseConnectionConfig) -> list[TableMetadata]:
     """Introspect all tables (optionally scoped to conn_config.schemas) for one connection."""
     inspector = inspect(engine)
@@ -36,6 +53,8 @@ def introspect_connection(engine: Engine, conn_config: DatabaseConnectionConfig)
     tables: list[TableMetadata] = []
     for schema in schemas:
         for table_name in inspector.get_table_names(schema=schema):
+            if not _is_included(schema, table_name, conn_config.include_tables):
+                continue
             if _is_excluded(table_name, conn_config.exclude_tables):
                 continue
 

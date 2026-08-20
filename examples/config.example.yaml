@@ -12,6 +12,11 @@ databases:
     username: sales_reader
     password_env: SALES_POSTGRES_PASSWORD
     schemas: ["public"]
+    # Optional: restrict agents to specific tables. Entries may be bare
+    # ("orders") or schema-qualified ("public.orders"), support globs, and
+    # are matched case-insensitively. Omit to include every table.
+    # This is what scripts/create-agent-setup.sh generates from the CSV.
+    # include_tables: ["public.orders", "public.customers"]
     exclude_tables: ["alembic_version", "django_migrations"]
     # Optional Purview overrides -- only needed if this connection's host or
     # database differs from how the source was registered in Purview, or if
