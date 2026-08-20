@@ -40,14 +40,26 @@ class TableAgent(BaseModel):
     def to_catalog_entry(self) -> dict:
         """Compact representation used when presenting this agent to the LLM
         for table-selection / SQL-generation prompts."""
-        return {
+        entry = {
             "id": self.id,
             "connection": self.metadata.connection_name,
             "dialect": self.metadata.dialect,
             "table": self.quoted_name(),
             "description": self.description,
             "columns": [
-                {"name": c.name, "type": c.data_type, "comment": c.comment}
+                {
+                    "name": c.name,
+                    "type": c.data_type,
+                    "comment": c.comment,
+                    **(
+                        {
+                            "purview_description": c.purview.description,
+                            "purview_classifications": c.purview.classifications,
+                        }
+                        if c.purview is not None
+                        else {}
+                    ),
+                }
                 for c in self.metadata.columns
             ],
             "primary_key": self.metadata.primary_key,
@@ -61,3 +73,17 @@ class TableAgent(BaseModel):
             ],
             "referenced_by": self.metadata.referenced_by,
         }
+
+        if self.metadata.purview is not None:
+            entry["purview"] = {
+                "qualified_name": self.metadata.purview.qualified_name,
+                "description": self.metadata.purview.description,
+                "classifications": self.metadata.purview.classifications,
+                "glossary_terms": [t.name for t in self.metadata.purview.glossary_terms if t.name],
+                "contacts": [
+                    {"role": c.role, "identifier": c.identifier} for c in self.metadata.purview.contacts
+                ],
+                "source_url": self.metadata.purview.source_url,
+            }
+
+        return entry

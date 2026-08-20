@@ -10,11 +10,13 @@ import time
 from pathlib import Path
 
 from db_agents.agents.description import generate_description
+from db_agents.agents.purview_enrichment import enrich_table_with_purview, is_purview_enabled_for
 from db_agents.agents.table_agent import TableAgent
 from db_agents.config import AppConfig
 from db_agents.connectors import EngineRegistry
 from db_agents.llm import LLMClient
 from db_agents.metadata import TableMetadata, introspect_connection
+from db_agents.purview.client import PurviewClient
 
 
 class AgentRegistry:
@@ -25,6 +27,14 @@ class AgentRegistry:
         self._agents: dict[str, TableAgent] = {}
         self._cache_path = Path(config.cache.path)
         self._init_cache()
+        self._purview_client: PurviewClient | None = None
+
+    def _get_purview_client(self) -> PurviewClient | None:
+        if self._config.purview is None or not self._config.purview.enabled:
+            return None
+        if self._purview_client is None:
+            self._purview_client = PurviewClient(self._config.purview)
+        return self._purview_client
 
     # -- cache -----------------------------------------------------------
     def _init_cache(self) -> None:
@@ -68,17 +78,21 @@ class AgentRegistry:
         """(Re)discover all tables across all configured connections and
         (re)build TableAgents, using the cache unless force=True."""
         self._agents.clear()
+        purview_client = self._get_purview_client()
         for conn_config in self._config.databases:
             engine = self._engines.get(conn_config.name)
             tables = introspect_connection(engine, conn_config)
             for table in tables:
                 cached = None if force else self._cache_get(table.full_id)
                 if cached is not None:
-                    _, description = cached
+                    metadata, description = cached
                 else:
-                    description = generate_description(table, llm=self._llm)
-                    self._cache_put(table.full_id, table, description)
-                self._agents[table.full_id] = TableAgent(metadata=table, description=description)
+                    if purview_client is not None and is_purview_enabled_for(conn_config, self._config.purview):
+                        table = enrich_table_with_purview(table, conn_config, self._config.purview, purview_client)
+                    metadata = table
+                    description = generate_description(metadata, llm=self._llm)
+                    self._cache_put(metadata.full_id, metadata, description)
+                self._agents[metadata.full_id] = TableAgent(metadata=metadata, description=description)
 
     def ensure_loaded(self) -> None:
         if not self._agents:
@@ -99,3 +113,8 @@ class AgentRegistry:
 
     def engines(self) -> EngineRegistry:
         return self._engines
+
+    def close(self) -> None:
+        self._engines.dispose_all()
+        if self._purview_client is not None:
+            self._purview_client.close()

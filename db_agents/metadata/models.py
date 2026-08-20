@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from db_agents.purview.models import PurviewAssetInfo, PurviewColumnInfo
+
 
 class ColumnMetadata(BaseModel):
     name: str
@@ -11,6 +13,8 @@ class ColumnMetadata(BaseModel):
     default: str | None = None
     is_primary_key: bool = False
     comment: str | None = None
+    # Governance information from Microsoft Purview, if configured/found.
+    purview: PurviewColumnInfo | None = None
 
 
 class ForeignKeyMetadata(BaseModel):
@@ -34,6 +38,8 @@ class TableMetadata(BaseModel):
     # Tables that reference *this* table (reverse FKs), filled in by the registry
     # once all tables in a connection have been introspected.
     referenced_by: list[str] = Field(default_factory=list)
+    # Governance information from Microsoft Purview (table-level), if configured/found.
+    purview: PurviewAssetInfo | None = None
 
     @property
     def qualified_name(self) -> str:

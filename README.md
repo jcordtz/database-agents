@@ -53,23 +53,40 @@ so an end user can ask natural-language questions that span multiple tables
    - Oracle: `ALL_TAB_COMMENTS` / `ALL_COL_COMMENTS`
    - DB2: `SYSCAT.TABLES` / `SYSCAT.COLUMNS` (`REMARKS`)
 
-2. **Description generation** (`db_agents/agents/description.py`) always
+2. **Purview enrichment** (`db_agents/purview` + `db_agents/agents/purview_enrichment.py`,
+   optional). If configured, each introspected table/column is looked up in
+   Microsoft Purview's Data Map (Atlas) API by a **qualified name** built
+   from the connection's host/database/schema/table information (see
+   `db_agents/purview/qualified_name.py`), following Purview's standard
+   per-source conventions, e.g. `mssql://<server>/<db>/<schema>/<table>` for
+   MSSQL, `postgresql://<host>/<db>/<schema>/<table>` for PostgreSQL, etc.
+   Column qualified names append `#<column>` to the table's qualified name.
+   Any business description, data classifications (PII, confidential, ...),
+   glossary terms, and contacts found are attached to the table/column
+   metadata alongside the database-native comments. Lookups fail silently by
+   default (`purview.fail_silently: true`) so a slow/unreachable Purview
+   account never blocks table-agent creation — Purview data is strictly an
+   optional enrichment layered on top of the database-native metadata.
+
+3. **Description generation** (`db_agents/agents/description.py`) always
    builds a deterministic, structured summary from the raw facts (comment,
-   columns + datatypes + comments, PK, FKs, reverse references). If an LLM
-   is configured, that structured summary is rewritten into a polished
-   natural-language paragraph — the LLM is never allowed to invent facts,
-   only reword the given ones.
+   columns + datatypes + comments, PK, FKs, reverse references, and — when
+   present — the merged Purview classifications/glossary terms/business
+   description). If an LLM is configured, that structured summary is
+   rewritten into a polished natural-language paragraph — the LLM is never
+   allowed to invent facts, only reword the given ones.
 
-3. **Per-table agents** (`db_agents/agents/table_agent.py`) wrap the
+4. **Per-table agents** (`db_agents/agents/table_agent.py`) wrap the
    metadata + description for one table and expose a compact "catalog
-   entry" used when prompting the LLM.
+   entry" (including any Purview data) used when prompting the LLM.
 
-4. **AgentRegistry** (`db_agents/agents/registry.py`) discovers every table
-   across all configured connections, builds the agents, and caches
-   descriptions in a local SQLite file (`.db_agents_cache.sqlite3` by
-   default) so repeated startups don't re-run introspection or LLM calls.
+5. **AgentRegistry** (`db_agents/agents/registry.py`) discovers every table
+   across all configured connections, performs the optional Purview lookup,
+   builds the agents, and caches descriptions in a local SQLite file
+   (`.db_agents_cache.sqlite3` by default) so repeated startups don't re-run
+   introspection, Purview lookups, or LLM calls.
 
-5. **Orchestrator** (`db_agents/orchestrator.py`) answers a cross-table
+6. **Orchestrator** (`db_agents/orchestrator.py`) answers a cross-table
    question in four steps:
    - Ask the LLM which table(s), from the full catalog, are relevant.
    - For each database *connection* involved, ask the LLM to write a single
@@ -82,9 +99,9 @@ so an end user can ask natural-language questions that span multiple tables
    - Ask the LLM to synthesize a final natural-language answer from the
      combined result sets.
 
-6. **MCP server** (`db_agents/mcp_server`) exposes four tools:
+7. **MCP server** (`db_agents/mcp_server`) exposes four tools:
    - `list_tables` — every discovered table with a short summary
-   - `describe_table(table_id)` — full description + schema for one table
+   - `describe_table(table_id)` — full description + schema (+ Purview info) for one table
    - `refresh_metadata(force=False)` — re-introspect + regenerate descriptions
    - `ask_question(question, row_limit=1000)` — the end-user entry point
 
@@ -130,6 +147,34 @@ Point your MCP client's config at this command. On first `ask_question` or
 generates descriptions (cached afterward). Call `refresh_metadata` after
 schema changes.
 
+## Enabling Microsoft Purview enrichment (optional)
+
+1. In Azure AD, register (or reuse) a service principal and grant it a
+   **Data Reader** role (or equivalent) on your Purview account/collection.
+2. Set `purview.enabled: true` and `purview.account_endpoint` in
+   `config.yaml`, e.g. `https://<your-account>.purview.azure.com`.
+3. Put the service principal's tenant/client id/secret in `.env`:
+   `PURVIEW_TENANT_ID`, `PURVIEW_CLIENT_ID`, `PURVIEW_CLIENT_SECRET`.
+4. Qualified names are generated automatically per table/column from each
+   connection's `host`/`database`/`schema`/`table` using Purview's standard
+   per-dialect conventions. If a source was registered in Purview under a
+   different hostname/database name than you connect with here (common when
+   connecting through a private endpoint, proxy, or read replica), set
+   `purview_source_host` and/or `purview_database` on that connection in
+   `config.yaml`. For a fully custom scan convention, set
+   `purview_qualified_name_template` instead (supports `{host}`, `{port}`,
+   `{database}`, `{schema}`, `{table}` placeholders).
+5. Restart the server (or call `refresh_metadata`). Any business
+   description, classifications, glossary terms, and contacts found in
+   Purview for a table/column are merged with the database-native comment
+   and included in that table's description and its MCP catalog entry — so
+   the orchestrator's table selection, SQL generation, and answer synthesis
+   can all take governance context (e.g. "this column is PII") into account.
+
+Purview lookups are best-effort: by default (`purview.fail_silently: true`)
+a slow or unreachable Purview account is logged and skipped rather than
+blocking table-agent creation.
+
 ## Adding a new database
 
 1. Add a new entry to `databases:` in `config.yaml` with `dialect` set to
@@ -148,8 +193,8 @@ several dialects/connections in the same question.
 pytest -q
 ```
 
-Tests use fully mocked `TableMetadata` fixtures and a mocked LLM client, so
-they run without any real database or LLM connection.
+Tests use fully mocked `TableMetadata` fixtures and a mocked LLM/Purview
+client, so they run without any real database, LLM, or Purview connection.
 
 ## Security notes
 
@@ -159,6 +204,9 @@ they run without any real database or LLM connection.
 - Use a database role with **read-only** grants for the credentials
   configured here — the SQL-keyword filter is a safety net, not a substitute
   for least-privilege database accounts.
-- Passwords are only ever read from environment variables (`password_env`),
-  never stored in the YAML config, so `config.yaml` can be safely checked
-  into version control.
+- Passwords, and the Purview service principal's client secret, are only
+  ever read from environment variables (`password_env`, `PURVIEW_CLIENT_SECRET`,
+  etc.), never stored in the YAML config, so `config.yaml` can be safely
+  checked into version control.
+- Grant the Purview service principal read-only ("Data Reader") access —
+  the integration only ever performs `GET` lookups against the Data Map API.

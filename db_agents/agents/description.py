@@ -14,12 +14,16 @@ from db_agents.metadata.models import TableMetadata
 _SYSTEM_PROMPT = (
     "You write concise, accurate documentation for database tables. "
     "You are given structured facts about a table (its comment, columns, "
-    "datatypes, and foreign key references). Rewrite these facts as a clear, "
-    "human-readable description of what the table contains. "
+    "datatypes, and foreign key references), optionally supplemented with "
+    "governance information from a data catalog (Microsoft Purview), such as "
+    "a business description, data classifications (e.g. PII, confidential), "
+    "and glossary terms. Rewrite these facts as a clear, human-readable "
+    "description of what the table contains. "
     "Do not invent facts that are not present in the input. "
     "Keep it factual and concise (a short paragraph plus a bullet list of "
-    "notable columns), and mention which other tables it references and is "
-    "referenced by."
+    "notable columns), mention which other tables it references and is "
+    "referenced by, and call out any data classifications or glossary terms "
+    "if present."
 )
 
 
@@ -32,6 +36,20 @@ def build_structured_summary(table: TableMetadata) -> str:
     else:
         lines.append("Table comment: (none provided)")
 
+    if table.purview is not None:
+        lines.append("Data governance information (from Microsoft Purview):")
+        if table.purview.description:
+            lines.append(f"  - Business description: {table.purview.description}")
+        if table.purview.classifications:
+            lines.append(f"  - Classifications: {', '.join(sorted(set(table.purview.classifications)))}")
+        if table.purview.glossary_terms:
+            terms = ", ".join(t.name for t in table.purview.glossary_terms if t.name)
+            if terms:
+                lines.append(f"  - Glossary terms: {terms}")
+        if table.purview.contacts:
+            contacts = ", ".join(f"{c.role}: {c.identifier}" for c in table.purview.contacts)
+            lines.append(f"  - Contacts: {contacts}")
+
     lines.append("Columns:")
     for col in table.columns:
         flags = []
@@ -41,7 +59,14 @@ def build_structured_summary(table: TableMetadata) -> str:
             flags.append("NOT NULL")
         flag_str = f" [{', '.join(flags)}]" if flags else ""
         comment = f" -- {col.comment}" if col.comment else ""
-        lines.append(f"  - {col.name}: {col.data_type}{flag_str}{comment}")
+        purview_bits = []
+        if col.purview is not None:
+            if col.purview.description:
+                purview_bits.append(f"purview: {col.purview.description}")
+            if col.purview.classifications:
+                purview_bits.append("classifications: " + ", ".join(sorted(set(col.purview.classifications))))
+        purview_str = f" ({'; '.join(purview_bits)})" if purview_bits else ""
+        lines.append(f"  - {col.name}: {col.data_type}{flag_str}{comment}{purview_str}")
 
     if table.foreign_keys:
         lines.append("References (this table -> other tables):")

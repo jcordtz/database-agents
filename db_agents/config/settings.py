@@ -37,6 +37,29 @@ class DatabaseConnectionConfig(BaseModel):
     # Table name patterns to exclude from introspection (SQL LIKE-style, simple glob supported)
     exclude_tables: list[str] = Field(default_factory=list)
 
+    # -- Purview overrides -------------------------------------------------
+    # Whether to attempt a Purview lookup for tables in this connection.
+    # Defaults to the global purview.enabled setting when not set here.
+    purview_enabled: Optional[bool] = None
+    # The host/server component used when this source was registered in
+    # Purview (e.g. the MSSQL server FQDN, or the Oracle/Postgres/DB2 host).
+    # Defaults to `host` if not given -- override when the registered source
+    # uses a different hostname/alias than the one used to connect here.
+    purview_source_host: Optional[str] = None
+    # The database name as registered in Purview, if different from `database`.
+    purview_database: Optional[str] = None
+    # Purview entity typeName for tables/views registered from this source,
+    # e.g. "azure_sql_table", "oracle_table", "postgresql_table", "db2_table".
+    # If not set, a sensible default is derived from `dialect`.
+    purview_table_entity_type: Optional[str] = None
+    purview_column_entity_type: Optional[str] = None
+    # Optional custom qualifiedName template, e.g.
+    # "mssql://{host}/{database}/{schema}/{table}". Overrides the built-in
+    # per-dialect default when your Purview account uses a non-standard
+    # scan/registration convention. Supports {host}, {port}, {database},
+    # {schema}, {table} placeholders.
+    purview_qualified_name_template: Optional[str] = None
+
     @property
     def password(self) -> Optional[str]:
         if self.password_env:
@@ -95,10 +118,70 @@ class CacheConfig(BaseModel):
     ttl_seconds: int = 24 * 3600
 
 
+class PurviewConfig(BaseModel):
+    """Connection + auth settings for Microsoft Purview Data Governance lookups.
+
+    Secrets are read from environment variables only, following the same
+    pattern as database passwords, so this config can be committed safely.
+    """
+
+    enabled: bool = False
+    # e.g. "https://<account-name>.purview.azure.com" (classic Data Map/Atlas
+    # endpoint) or your account's unified catalog endpoint.
+    account_endpoint: str = Field(
+        default="", description="Purview account endpoint, e.g. https://<account-name>.purview.azure.com"
+    )
+    tenant_id_env: str = "PURVIEW_TENANT_ID"
+    client_id_env: str = "PURVIEW_CLIENT_ID"
+    client_secret_env: str = "PURVIEW_CLIENT_SECRET"
+    api_version: str = "2023-09-01"
+    # Default Atlas entity typeNames per dialect for tables/columns; can be
+    # overridden per-connection via DatabaseConnectionConfig.purview_*_entity_type.
+    default_table_entity_types: dict[str, str] = Field(
+        default_factory=lambda: {
+            "mssql": "azure_sql_table",
+            "oracle": "oracle_table",
+            "postgresql": "postgresql_table",
+            "db2": "db2_table",
+        }
+    )
+    default_column_entity_types: dict[str, str] = Field(
+        default_factory=lambda: {
+            "mssql": "azure_sql_column",
+            "oracle": "oracle_column",
+            "postgresql": "postgresql_column",
+            "db2": "db2_column",
+        }
+    )
+    # Network/lookup resilience: don't let a slow/unreachable Purview
+    # instance block table-agent creation.
+    request_timeout_seconds: float = 10.0
+    fail_silently: bool = True
+
+    @property
+    def tenant_id(self) -> Optional[str]:
+        return os.environ.get(self.tenant_id_env)
+
+    @property
+    def client_id(self) -> Optional[str]:
+        return os.environ.get(self.client_id_env)
+
+    @property
+    def client_secret(self) -> Optional[str]:
+        return os.environ.get(self.client_secret_env)
+
+    def table_entity_type(self, dialect: str) -> str:
+        return self.default_table_entity_types.get(dialect, "table")
+
+    def column_entity_type(self, dialect: str) -> str:
+        return self.default_column_entity_types.get(dialect, "column")
+
+
 class AppConfig(BaseModel):
     databases: list[DatabaseConnectionConfig]
     llm: Optional[LLMConfig] = None
     cache: CacheConfig = Field(default_factory=CacheConfig)
+    purview: Optional[PurviewConfig] = None
 
     @model_validator(mode="after")
     def _unique_names(self) -> "AppConfig":
