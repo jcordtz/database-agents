@@ -1,5 +1,12 @@
 # db-agents
 
+![Tiger header](images/tiger.jpg)
+
+[![English](images/lang-en-red.svg)](README.md) [![Dansk](images/lang-da--dk-green.svg)](README.da.md) [![Deutsch](images/lang-de-yellow.svg)](README.de.md)
+
+> **Disclaimer:** This project is provided **as-is**, without warranties or
+> conditions of any kind, and is intended to be used under the **MIT License**.
+
 Turn every table in your MSSQL, Oracle, PostgreSQL, and DB2 databases into a
 self-describing "agent," and expose them all through a single **MCP** server
 so an end user can ask natural-language questions that span multiple tables
@@ -332,3 +339,7 @@ client, so they run without any real database, LLM, or Purview connection.
   checked into version control.
 - Grant the Purview service principal read-only ("Data Reader") access —
   the integration only ever performs `GET` lookups against the Data Map API.
+
+---
+
+[![English](images/lang-en-red.svg)](README.md) [![Dansk](images/lang-da--dk-green.svg)](README.da.md) [![Deutsch](images/lang-de-yellow.svg)](README.de.md)
